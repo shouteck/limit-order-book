@@ -1,0 +1,128 @@
+concept 1: CPU is fast at arithmetic but slow at fetching
+
+L1 cache: ~1 ns (data already next to CPU)
+L2/L3 cache: ~10-30 ns
+Main memory: ~100 ns (a round trip to DRAM)
+
+executing one instruction on data already in a register: ~0.3 ns
+fetching one value from DRAM when it's not cached: ~60-100 ns
+
+where latency physically comes from:
+
+1. Distance
+
+DRAM is a separate chip, centimeters away.
+
+2. DRAM internals
+
+3. Memory wall
+
+CPU clock speeds improved ~50%/year while DRAM latency improved ~7%/year
+the gap widened for decades and that is why caches exist at all
+caches are a workaround for the fact that memory latency never kept up
+
+In cycle terms, an add is ~1 cycle.
+L1 hit ~4-5 cycles.
+L2 hit ~12 cycles.
+L3 hit ~45 cycles.
+DRAM hit ~200-300 cycles.
+
+concept 2: tree / linkedlist are the WORST CASE for the memory problem
+           (max dependent misses, zero possible overlap)
+
+load node ──wait 100ns──> node says "child is at 0x3300"
+load 0x3300 ──wait 100ns──> says "child is at 0x84A0"
+load 0x84A0 ──wait 100ns──> ...
+
+8 fetches = 8 x 100ns = 800ns — NOTHING can overlap
+
+concept 3: addresses being computable ahead of time solves the memory problem
+
+addresses: 1000, 1064, 1128, 1192, 1256, 1320, ...
+                all computable RIGHT NOW (just arithmetic)
+
+send:  ──> ──> ──> ──> ──> ──> ──>   (fire them all off)
+wait:  ~~~~~~~~ one round trip ~~~~~~~~
+recv:  <── <── <── <── <── <── <──   (they all come back together)
+
+8 fetches ≈ 100ns total — the waits OVERLAP
+
+concept 4: addresses can be computed ahead of time in an array
+
+the address is a function of the index
+
+f(i) = base + i * element_size
+
+compared to a linkedlist:
+
+you may ask where is node 2 but you can't compute it
+there is no formula f(1)
+the address of node 2 is data stored inside node 1 - node1.next
+
+concept 5: real cost
+
+real cost = (how many operations)  x  (cost per operation)
+                big-O's job              layout's job
+
+concept 6: the cache fetches in 64-byte chunks
+
+one fetch brings 64 bytes - the "cache line"
+fetch arr[0] and you get arr[0..15] free (ints = 4 bytes)
+neighbors are free - this is why contiguity physically pays
+
+bonus: the prefetcher
+hardware notices sequential reads and fetches AHEAD of you
+arrays get free anticipation; pointer chases defeat it completely
+
+concept 7: O(log N) is only the floor if all you can do is compare
+
+comparison model: the only question allowed is "is a < b?"
+each step gives 1 bit of info -> Omega(log N) is a real theorem
+trees are optimal IN THAT MODEL - that's the catch
+
+but prices are bounded integers in a known range
+an integer in a bounded range is not just orderable - it is an ADDRESS
+
+price 4903 -> slot[4903]      no searching at all
+
+honest limit: this works BECAUSE prices are bounded + dense
+unbounded keys -> back in the comparison model -> tree wins again
+
+concept 8: best price in the flat design = bitmap + bitscan
+
+one bit per price: bit set = "level has orders"
+
+prices:      4900 4901 4902 4903
+bitmap:        0    0    1    1
+                      ^
+lowest set bit = best ask - ONE instruction (tzcnt)
+one 64-bit word covers 64 prices - it is not a scan
+
+next nonempty level (the matching sweep) = next set bit
+same instruction
+
+concept 9: mutation is where the tree actually bleeds
+
+lookups were only half the story - add/cancel also WRITE
+
+tree insert:  malloc node + descend + rotate/recolor ancestors
+tree delete:  rebalance + free
+each one = more scattered writes = more misses
+
+malloc is the killer: shared global heap, lock-protected, UNBOUNDED
+usually ~50ns, sometimes microseconds
+this is the physical source of p99.9 = 5600ns vs p50 = 300ns
+
+flat version:  levels[price].init() + bitmap[price] = 1
+2 bounded writes, no allocator in sight
+
+concept 10: the formula needs three conditions, not just contiguity
+
+fixed-size elements + stored INLINE + back-to-back
+
+vector<Order*> is contiguous but still chases:
+  arr[i] arrives fast... but *arr[i] is a random address
+  contiguous pointers != contiguous data
+  the object must BE at the computed address, not pointed to by it
+
+

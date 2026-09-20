@@ -146,4 +146,4 @@ template <typename B> void t_modify_loses_priority() {
     TEST(P##_modify_prio)   { t_modify_loses_priority<T>(); }
 
 BOOK_SUITE(naive_, lob::NaiveBook)
-// BOOK_SUITE(fast_, lob::Book)   // uncomment once Book is implemented
+BOOK_SUITE(fast_, lob::Book)   // uncomment once Book is implemented
