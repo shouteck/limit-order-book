@@ -52,6 +52,12 @@ M,<id>,<price>,<qty>                       modify (loses queue priority)
 Prices are integer ticks (10000 = $100.00). Streams are deterministic for a
 given seed — replaying the same file must produce the same trades.
 
+## Docs
+
+- `GUIDE.md` / `GUIDE.pdf` — roadmap, syllabus, commands (regenerate: `python tools/make_guide.py`)
+- `THEORY.tex` — per-milestone theory notes; compile with `pdflatex THEORY.tex` or Overleaf
+- `human_notes.txt` — personal concept notes
+
 ## The division of labor
 
 `NaiveBook`, replay, generator, benchmark, and tests are the harness. `Book`
