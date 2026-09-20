@@ -8,6 +8,7 @@
 \usepackage{enumitem}
 \usepackage{fancyhdr}
 \usepackage{mdframed}
+\usepackage{listings}
 
 \definecolor{accent}{RGB}{20,60,120}
 \definecolor{buildbg}{RGB}{238,243,250}
@@ -21,12 +22,17 @@
           innerrightmargin=10pt,innertopmargin=8pt,innerbottommargin=8pt,
           skipabove=10pt,skipbelow=10pt]{buildbox}
 
-% compact verbatim-style block for diagrams
-\newenvironment{diagram}
-  {\begin{mdframed}[backgroundcolor=codegray,linewidth=0pt,
-                   innerleftmargin=8pt,innertopmargin=4pt,innerbottommargin=4pt]
-   \begin{verbatim}}
-  {\end{verbatim}\end{mdframed}}
+% compact verbatim-style block for diagrams (listings handles nesting safely)
+\lstnewenvironment{diagram}
+  {\lstset{basicstyle=\ttfamily\small,
+           columns=fullflexible,
+           keepspaces=true,
+           backgroundcolor=\color{codegray},
+           frame=none,
+           xleftmargin=8pt,
+           aboveskip=8pt,
+           belowskip=8pt}}
+  {}
 
 \pagestyle{fancy}
 \fancyhf{}
