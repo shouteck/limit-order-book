@@ -19,6 +19,38 @@ Book::Book(std::size_t capacity) {
     for (std::uint32_t i = 0; i < capacity; ++i) {
         free_.push_back(i);
     }
+    bids_lv_.resize(NPRICES);
+    asks_lv_.resize(NPRICES);
+}
+
+Book::Level& Book::lvl_at(std::vector<Level>& lv, Price p) {
+
+    if (p < LO || p >= LO + static_cast<Price>(NPRICES))
+        throw std::out_of_range("Book: price out of range");
+    return lv[static_cast<std::size_t>(p - LO)];
+
+}
+
+const Book::Level& Book::lvl_at(const std::vector<Level>& lv, Price p) const {
+
+    if (p < LO || p >= LO + static_cast<Price>(NPRICES))
+        throw std::out_of_range("Book: price out of range");
+    return lv[static_cast<std::size_t>(p - LO)];
+
+}
+
+int Book::next_nonempty_bid(int i) const {
+    for (int j = i; j >= 0; --j) {
+        if (bids_lv_[j].head != nullptr) return j;
+    }
+    return -1;
+}
+
+int Book::next_nonempty_ask(int i) const {
+    for (int j = i; j < (int)NPRICES; ++j) {
+        if (asks_lv_[j].head != nullptr) return j;
+    }
+    return -1;
 }
 
 Book::Node* Book::alloc() {
@@ -62,7 +94,7 @@ void Book::push_back(Level& lvl, Node* n) {
 
 void Book::rest(const Order& o) {
     // 1. find/create the queue's doorway (map auto-creates an empty Level)
-    Level& lvl = (o.side == Side::Buy) ? bids_[o.price] : asks_[o.price];
+    Level& lvl = lvl_at(o.side == Side::Buy ? bids_lv_ : asks_lv_, o.price);
 
     // 2. claim a parking space
     Node* n = alloc();
@@ -79,10 +111,13 @@ void Book::rest(const Order& o) {
 bool Book::fillable(const Order& in) const {
     Quantity have = 0;
     auto accumulate = [&](const auto& opp, bool in_is_buy) {
-        for (const auto& [px, lvl] : opp) {
+        int i = in_is_buy ? 0 : static_cast<int>(NPRICES) - 1;
+        for (; i >= 0 && i < (int)NPRICES; in_is_buy ? ++i : --i) {
+            const Price px = LO + i;
             if (in.type == OrderType::Limit &&
                 (in_is_buy ? px > in.price : px < in.price))
                 break;
+            const Level& lvl = opp[i];
             Node* n = lvl.head;
             while (n != nullptr) {
                 have += n->o.qty;
@@ -91,8 +126,8 @@ bool Book::fillable(const Order& in) const {
             }
         }
     };
-    if (in.side == Side::Buy) accumulate(asks_, true);
-    else                      accumulate(bids_, false);
+    if (in.side == Side::Buy) accumulate(asks_lv_, true);
+    else                      accumulate(bids_lv_, false);
     return have >= in.qty;
 }
 
@@ -101,10 +136,6 @@ bool Book::cancel(OrderId id) {
     if (it == index_.end()) return false;
     Node* n = it->second;
     unlink(*n->lvl, n);
-    if (n->lvl->head == nullptr) {
-        if (n->o.side == Side::Buy) bids_.erase(n->o.price);
-        else asks_.erase(n->o.price);
-    }
     index_.erase(it);
     release(n);
     return true;
@@ -132,8 +163,8 @@ void Book::add_impl(const Order& o, const std::function<void(const Trade&)>& on_
     // clerk checks if the order is fillable for FOK orders
     if (in.tif == TimeInForce::FOK && !fillable(in)) return;
 
-    if (in.side == Side::Buy) match_into(in, asks_, true, on_trade);
-    else match_into(in, bids_, false, on_trade);
+    if (in.side == Side::Buy) match_into(in, asks_lv_, true, on_trade);
+    else match_into(in, bids_lv_, false, on_trade);
 
     if (in.qty > 0 && in.type == OrderType::Limit && in.tif == TimeInForce::GTC) {
         rest(in);
@@ -142,29 +173,26 @@ void Book::add_impl(const Order& o, const std::function<void(const Trade&)>& on_
 }
 
 std::optional<Price> Book::best_bid() const { 
-    if (bids_.empty()) return std::nullopt;
-    return bids_.begin()->first;
+    int i = next_nonempty_bid(static_cast<int>(NPRICES) - 1);
+    if (i < 0) return std::nullopt;
+    return LO + i;
 }
 std::optional<Price> Book::best_ask() const { 
-    if (asks_.empty()) return std::nullopt;
-    return asks_.begin()->first;
+    int i = next_nonempty_ask(0);
+    if (i < 0) return std::nullopt;
+    return LO + i;
 }
 std::size_t Book::order_count() const { 
     return index_.size();
 }
 std::uint64_t Book::resting_qty(Side side) const { 
     std::uint64_t total = 0;
-    auto sum = [&](const auto& levels) {
-        for (const auto& [px, lvl] : levels) {
-            Node* n = lvl.head;
-            while (n != nullptr) {
-                total += n->o.qty;
-                n = n->next;
-            }
-        }
-    };
-    if (side == Side::Buy) sum(bids_);
-    else                   sum(asks_);
+    const std::vector<Level>& lv = 
+        (side == Side::Buy) ? bids_lv_ : asks_lv_;
+    for (const Level& lvl : lv) {
+        for (Node* n = lvl.head; n; n = n->next)
+            total += n->o.qty;
+    }
     return total;
 }
 

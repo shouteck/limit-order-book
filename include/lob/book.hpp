@@ -50,6 +50,9 @@ public:
 private:
     void add_impl(const Order& o, const std::function<void(const Trade&)>& on_trade);
 
+    static constexpr Price LO = 0;
+    static constexpr std::size_t NPRICES = 1 << 16;
+
     struct Level; // declare the name first
 
     struct Node {
@@ -67,27 +70,31 @@ private:
     std::vector<Node> pool_;
     std::vector<uint32_t> free_;
 
-    std::map<Price, Level, std::greater<Price>> bids_;  // best bid first
-    std::map<Price, Level, std::less<Price>> asks_;  // best ask first
+    std::vector<Level> bids_lv_;
+    std::vector<Level> asks_lv_;
     std::unordered_map<OrderId, Node*> index_;    
 
     Node* alloc();
     void release(Node* n);
     void unlink(Level& lvl, Node* n);
     void push_back(Level& lvl, Node* n);    
+    Level& lvl_at(std::vector<Level>& lv, Price p);
+    const Level& lvl_at(const std::vector<Level>& lv, Price p) const;
+    int next_nonempty_bid(int i) const;
+    int next_nonempty_ask(int i) const;
 
     template<typename OppLevels, typename OnTrade>
     void match_into(Order& in, OppLevels& opp, bool in_is_buy, OnTrade&& on_trade) {
         Price aggressorPrice = in.price;
-        auto it = opp.begin();
-        while (it != opp.end() && in.qty > 0) {
-            Price restingPrice = it->first;
+        int i = in_is_buy ? next_nonempty_ask(0) : next_nonempty_bid(NPRICES - 1);
+        while (i >= 0 && in.qty > 0) {
+            Price restingPrice = LO + i;
             if (in.type == OrderType::Limit && 
                 // if you're buying, you can't be buying at a price lower than the lowest ask
                 // if you're selling, you can't be selling at a price higher than the highest bid
                 (in_is_buy ? aggressorPrice < restingPrice : aggressorPrice > restingPrice))
                 break;
-            Level& lvl = it->second;
+            Level& lvl = opp[i];
             while (lvl.head != nullptr && in.qty > 0) {
                 Order& r = lvl.head->o;
                 Quantity n = std::min(in.qty, r.qty);
@@ -102,7 +109,9 @@ private:
                     release(dead);
                 }
             }
-            if (lvl.head == nullptr) it = opp.erase(it);
+            if (lvl.head == nullptr) {
+                i = in_is_buy ? next_nonempty_ask(i + 1) : next_nonempty_bid(i - 1);
+            }
             // aggressor is done
             else break;
         }
