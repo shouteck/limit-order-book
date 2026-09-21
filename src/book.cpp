@@ -9,13 +9,71 @@ namespace {
 }
 } // namespace
 
+Book::Book(std::size_t capacity) {
+    // create n Node objects
+    // pool_[0..N-1] all exist
+    pool_.resize(capacity);
+    // raw space for N elements, size still 0
+    // no objects created, just dont reallocate later
+    free_.reserve(capacity);
+    for (std::uint32_t i = 0; i < capacity; ++i) {
+        free_.push_back(i);
+    }
+}
+
+Book::Node* Book::alloc() {
+    if (free_.empty())
+        throw std::runtime_error("Book: order pool exhausted");
+    Node* n = &pool_[free_.back()];
+    free_.pop_back();
+    return n;
+}
+
+void Book::release(Node * n) {
+    /*
+    slot 0  ->  0x1000
+    slot 1  ->  0x1020     (0x1000 + 1*32)
+    slot 2  ->  0x1040     (0x1000 + 2*32)
+    slot 3  ->  0x1060
+    Now someone hands you n = 0x1040 and asks "which slot is that?":
+    n - pool_.data()   =   (0x1040 - 0x1000) / 32   =   0x40 / 32   =   2
+    */
+    free_.push_back(static_cast<uint32_t>(n - pool_.data()));
+}
+
+void Book::unlink(Level& lvl, Node* n) {
+
+    if (n->prev) n->prev->next = n->next;
+    else lvl.head = n->next;
+    if (n->next) n->next->prev = n->prev;
+    else lvl.tail = n->prev;
+
+}
+
+void Book::push_back(Level& lvl, Node* n) {
+
+    n->prev = lvl.tail;
+    n->next = nullptr;
+    if (lvl.tail) lvl.tail->next = n;
+    else lvl.head = n;
+    lvl.tail = n;
+
+}
+
 void Book::rest(const Order& o) {
-    if (o.side == Side::Buy) bids_[o.price].push_back(o);
-    else                     asks_[o.price].push_back(o);
-    index_[o.id] = Locator{o.side, o.price};
-    // this is for cancel
-    // the id tells us which map
-    // the price tells us which level
+    // 1. find/create the queue's doorway (map auto-creates an empty Level)
+    Level& lvl = (o.side == Side::Buy) ? bids_[o.price] : asks_[o.price];
+
+    // 2. claim a parking space
+    Node* n = alloc();
+    n->o    = o;        // write the order into the slot
+    n->lvl  = &lvl;     // <-- the backpointer: remember which queue owns me
+
+    // 3. join the back of the line
+    push_back(lvl, n);
+ 
+    // 4. record in the notebook — the order ITSELF now, not directions to it
+    index_[o.id] = n;
 }
 
 bool Book::fillable(const Order& in) const {
@@ -25,9 +83,11 @@ bool Book::fillable(const Order& in) const {
             if (in.type == OrderType::Limit &&
                 (in_is_buy ? px > in.price : px < in.price))
                 break;
-            for (const Order& r : lvl) {
-                have += r.qty;
+            Node* n = lvl.head;
+            while (n != nullptr) {
+                have += n->o.qty;
                 if (have >= in.qty) return;
+                n = n->next;
             }
         }
     };
@@ -39,45 +99,23 @@ bool Book::fillable(const Order& in) const {
 bool Book::cancel(OrderId id) {
     auto it = index_.find(id);
     if (it == index_.end()) return false;
-    const Locator loc = it->second;
-
-    auto erase_in = [&](auto& levels) {
-        auto lv = levels.find(loc.price);
-        if (lv == levels.end()) return;
-        Level& q = lv->second;
-        for (auto oit = q.begin(); oit != q.end(); ++oit) {
-            if (oit->id == id) { q.erase(oit); break; }
-        }
-        if (q.empty()) levels.erase(lv);
-    };
-    if (loc.side == Side::Buy) erase_in(bids_);
-    else                       erase_in(asks_);
+    Node* n = it->second;
+    unlink(*n->lvl, n);
+    if (n->lvl->head == nullptr) {
+        if (n->o.side == Side::Buy) bids_.erase(n->o.price);
+        else asks_.erase(n->o.price);
+    }
     index_.erase(it);
+    release(n);
     return true;
 }
 
 bool Book::modify(OrderId id, Price new_price, Quantity new_qty) {
     auto it = index_.find(id);
     if (it == index_.end()) return false;
-    const Locator loc = it->second;
 
-    Order o{};
-    bool found = false;
-    auto grab = [&](auto& levels) {
-        auto lv = levels.find(loc.price);
-        if (lv == levels.end()) return;
-        for (const Order& r : lv->second) {
-            if (r.id == id) {
-                o = r;
-                found = true;
-                return;
-            }
-        }
-    };
-
-    if (loc.side == Side::Buy) grab(bids_);
-    else                       grab(asks_);
-    if (!found) return false;
+    Node* n = it->second;
+    Order o = n->o;
 
     cancel(id);
     o.price = new_price;
@@ -117,8 +155,13 @@ std::size_t Book::order_count() const {
 std::uint64_t Book::resting_qty(Side side) const { 
     std::uint64_t total = 0;
     auto sum = [&](const auto& levels) {
-        for (const auto& [px, lvl] : levels)
-            for (const Order& o : lvl) total += o.qty;
+        for (const auto& [px, lvl] : levels) {
+            Node* n = lvl.head;
+            while (n != nullptr) {
+                total += n->o.qty;
+                n = n->next;
+            }
+        }
     };
     if (side == Side::Buy) sum(bids_);
     else                   sum(asks_);

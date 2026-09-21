@@ -8,6 +8,8 @@
 #include <deque>
 #include <map>
 #include <unordered_map>
+#include <vector>
+#include <cstdint>
 
 #include "lob/types.hpp"
 
@@ -30,6 +32,7 @@ namespace lob {
 // Until implemented, every method throws std::logic_error.
 class Book {
 public:
+    explicit Book(std::size_t capacity = 1 << 20);
     template <typename OnTrade>
     void add(const Order& o, OnTrade&& on_trade) {
         add_impl(o, std::function<void(const Trade&)>(
@@ -47,12 +50,31 @@ public:
 private:
     void add_impl(const Order& o, const std::function<void(const Trade&)>& on_trade);
 
-    using Level = std::deque<Order>;
-    struct Locator { Side side; Price price; };
+    struct Level; // declare the name first
+
+    struct Node {
+        Order o;
+        Node* prev;
+        Node* next;
+        Level* lvl;
+    };
+
+    struct Level {
+        Node* head = nullptr;
+        Node* tail = nullptr;
+    };
+
+    std::vector<Node> pool_;
+    std::vector<uint32_t> free_;
 
     std::map<Price, Level, std::greater<Price>> bids_;  // best bid first
-    std::map<Price, Level, std::less<Price>>    asks_;  // best ask first
-    std::unordered_map<OrderId, Locator>        index_;    
+    std::map<Price, Level, std::less<Price>> asks_;  // best ask first
+    std::unordered_map<OrderId, Node*> index_;    
+
+    Node* alloc();
+    void release(Node* n);
+    void unlink(Level& lvl, Node* n);
+    void push_back(Level& lvl, Node* n);    
 
     template<typename OppLevels, typename OnTrade>
     void match_into(Order& in, OppLevels& opp, bool in_is_buy, OnTrade&& on_trade) {
@@ -66,26 +88,28 @@ private:
                 (in_is_buy ? aggressorPrice < restingPrice : aggressorPrice > restingPrice))
                 break;
             Level& lvl = it->second;
-            while (!lvl.empty() && in.qty > 0) {
-                Order& r = lvl.front();
+            while (lvl.head != nullptr && in.qty > 0) {
+                Order& r = lvl.head->o;
                 Quantity n = std::min(in.qty, r.qty);
                 // defining contract for on_trade to accept Trade
                 on_trade(Trade{in.id, r.id, restingPrice, n});
                 in.qty -= n;
                 r.qty -= n;
                 if (r.qty == 0) {
+                    Node* dead = lvl.head;
+                    unlink(lvl, dead);
                     index_.erase(r.id);
-                    lvl.pop_front();
+                    release(dead);
                 }
             }
-            if (lvl.empty()) it = opp.erase(it);
+            if (lvl.head == nullptr) it = opp.erase(it);
             // aggressor is done
             else break;
         }
     }
 
     void rest(const Order& o);
-    bool fillable(const Order& in) const;  // FOK pre-check    
+    bool fillable(const Order& in) const;  // FOK pre-check   
 
     // TODO(you): internal representation -- price levels, order index,
     // arena/pool allocator, intrusive FIFO, flat-array levels...
