@@ -22,7 +22,34 @@ on a 50k-event generated tape.
 
 ## Fast-book internals (`Book`)
 
-![Architecture](docs/architecture.svg)
+```mermaid
+flowchart TB
+    ev["Event — add / cancel / modify<br/>(id, side, price, qty)"]
+
+    subgraph idx["identity axis — who is this order?"]
+        index["index_: id → Node*<br/>flat hash map · O(1) cancel"]
+    end
+
+    subgraph px["price axis — where does it sit?"]
+        lv["bids_lv_ / asks_lv_<br/>flat arrays: i = price − LO<br/>O(1), no tree descent"]
+        occ["occ_bid_ / occ_ask_<br/>1 bit per price, 64 prices/word<br/>bit[i] == level i nonempty"]
+        fifo["Level { head, tail }<br/>intrusive FIFO of Nodes<br/>n→lvl backpointer · unlink = 4 writes"]
+    end
+
+    subgraph mem["memory — allocated once at construction"]
+        pool["pool_: vector Node<br/>stable addresses forever"]
+        free["free_: index stack<br/>alloc = pop · release = push<br/>throws on exhaustion"]
+    end
+
+    ev -->|"by id"| index
+    ev -->|"by price"| lv
+    index -->|"Node*"| fifo
+    lv --> fifo
+    occ -.->|"tzcnt / lzcnt: best + next<br/>occupied level"| lv
+    fifo --- pool
+    pool --- free
+    fifo -->|"on_trade(t)"| out["Trade reports<br/>templated callback &#183; no std::function"]
+```
 
 ```
 pool_    vector<Node>          one allocation at ctor; alloc/release are
