@@ -1,12 +1,9 @@
 #pragma once
 
-#include <functional>
 #include <optional>
 #include <stdexcept>
 #include <utility>
 #include <algorithm>
-#include <deque>
-#include <map>
 #include <unordered_map>
 #include <vector>
 #include <cstdint>
@@ -36,8 +33,7 @@ public:
     explicit Book(std::size_t capacity = 1 << 20);
     template <typename OnTrade>
     void add(const Order& o, OnTrade&& on_trade) {
-        add_impl(o, std::function<void(const Trade&)>(
-                        std::forward<OnTrade>(on_trade)));
+        add_impl(o, std::forward<OnTrade>(on_trade));
     }
 
     bool cancel(OrderId id);
@@ -49,7 +45,22 @@ public:
     std::uint64_t        resting_qty(Side side) const;
 
 private:
-    void add_impl(const Order& o, const std::function<void(const Trade&)>& on_trade);
+    template <typename OnTrade>
+    void add_impl(const Order& o, OnTrade&& on_trade) {
+    
+        Order in = o;
+    
+        // clerk checks if the order is fillable for FOK orders
+        if (in.tif == TimeInForce::FOK && !fillable(in)) return;
+    
+        if (in.side == Side::Buy) match_into(in, asks_lv_, true, on_trade);
+        else match_into(in, bids_lv_, false, on_trade);
+    
+        if (in.qty > 0 && in.type == OrderType::Limit && in.tif == TimeInForce::GTC) {
+            rest(in);
+        }
+    
+    }    
 
     static constexpr Price LO = 0;
     static constexpr std::size_t NPRICES = 1 << 16;

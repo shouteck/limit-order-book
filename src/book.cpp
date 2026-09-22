@@ -2,13 +2,6 @@
 
 namespace lob {
 
-namespace {
-[[noreturn]] void not_implemented(const char* what) {
-    throw std::logic_error(std::string("Book::") + what +
-                           " not implemented -- this is your part. See book.hpp");
-}
-} // namespace
-
 Book::Book(std::size_t capacity) {
     // create n Node objects
     // pool_[0..N-1] all exist
@@ -189,22 +182,6 @@ bool Book::modify(OrderId id, Price new_price, Quantity new_qty) {
     o.qty = new_qty;
     add(o, [](const Trade&) {});
     return true;
-
-}
-
-void Book::add_impl(const Order& o, const std::function<void(const Trade&)>& on_trade) {
-    
-    Order in = o;
-
-    // clerk checks if the order is fillable for FOK orders
-    if (in.tif == TimeInForce::FOK && !fillable(in)) return;
-
-    if (in.side == Side::Buy) match_into(in, asks_lv_, true, on_trade);
-    else match_into(in, bids_lv_, false, on_trade);
-
-    if (in.qty > 0 && in.type == OrderType::Limit && in.tif == TimeInForce::GTC) {
-        rest(in);
-    }
 
 }
 
