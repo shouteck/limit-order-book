@@ -5,7 +5,8 @@
 namespace lob {
 
 std::vector<Event> generate_events(std::size_t n, std::uint64_t seed,
-                                   double cancel_ratio, double modify_ratio) {
+                                   double cancel_ratio, double modify_ratio,
+                                   Price spread) {
     std::mt19937_64 rng(seed);
     std::uniform_real_distribution<double> u(0.0, 1.0);
 
@@ -31,7 +32,9 @@ std::vector<Event> generate_events(std::size_t n, std::uint64_t seed,
             const std::size_t k = static_cast<std::size_t>(rng() % live.size());
             Event e{EventKind::Modify, {}};
             e.order.id    = live[k];
-            e.order.price = mid + static_cast<Price>(rng() % 201) - 100;
+            e.order.price = mid + static_cast<Price>(rng() % (2 * spread + 1)) - spread;
+            if (e.order.price < 1)     e.order.price = 1;
+            if (e.order.price > 60000) e.order.price = 60000;
             e.order.qty   = static_cast<Quantity>(1 + rng() % 200);
             out.push_back(e);
         } else {
@@ -43,13 +46,17 @@ std::vector<Event> generate_events(std::size_t n, std::uint64_t seed,
             o.tif     = TimeInForce::GTC;
             o.side    = (rng() & 1) ? Side::Buy : Side::Sell;
             const bool aggressive = u(rng) < 0.20;
+            const Price  cross      = spread / 4 + 1;   // aggressive band
             if (o.side == Side::Buy) {
-                o.price = aggressive ? mid + static_cast<Price>(rng() % 30)
-                                     : mid - static_cast<Price>(1 + rng() % 50);
+                o.price = aggressive ? mid + static_cast<Price>(rng() % cross)
+                                     : mid - static_cast<Price>(1 + rng() % spread);
             } else {
-                o.price = aggressive ? mid - static_cast<Price>(rng() % 30)
-                                     : mid + static_cast<Price>(1 + rng() % 50);
+                o.price = aggressive ? mid - static_cast<Price>(rng() % cross)
+                                     : mid + static_cast<Price>(1 + rng() % spread);
             }
+            // keep generated prices inside Book's domain [LO, LO+NPRICES)
+            if (o.price < 1)     o.price = 1;
+            if (o.price > 60000) o.price = 60000;
             o.qty = static_cast<Quantity>(1 + rng() % 200);
             out.push_back(e);
             live.push_back(o.id);

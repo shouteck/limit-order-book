@@ -73,7 +73,10 @@ int bench_with(const std::vector<lob::Event>& events, int runs) {
 
 void usage() {
     std::fprintf(stderr,
-        "usage: lob_bench [<events.csv> | --gen N] [--seed S] [--book naive|fast] [--runs R]\n");
+        "usage: lob_bench [<events.csv> | --gen N] [--seed S] [--book naive|fast] [--runs R]\n"
+        "       [--spread TICKS] [--cancel RATIO] [--modify RATIO]\n"
+        "  spread: half-width of resting price band around mid (default 100;\n"
+        "          larger = sparser, deeper book)\n");
 }
 
 } // namespace
@@ -84,12 +87,18 @@ int main(int argc, char** argv) {
     std::size_t   gen_n  = 0;
     std::uint64_t seed   = 42;
     int           runs   = 3;
+    lob::Price    spread = 100;
+    double        cancel_ratio = 0.25;
+    double        modify_ratio = 0.05;
 
     for (int i = 1; i < argc; ++i) {
-        if      (std::strcmp(argv[i], "--gen") == 0 && i + 1 < argc)  gen_n = std::stoull(argv[++i]);
-        else if (std::strcmp(argv[i], "--seed") == 0 && i + 1 < argc) seed = std::stoull(argv[++i]);
-        else if (std::strcmp(argv[i], "--book") == 0 && i + 1 < argc) book_name = argv[++i];
-        else if (std::strcmp(argv[i], "--runs") == 0 && i + 1 < argc) runs = std::atoi(argv[++i]);
+        if      (std::strcmp(argv[i], "--gen") == 0 && i + 1 < argc)    gen_n = std::stoull(argv[++i]);
+        else if (std::strcmp(argv[i], "--seed") == 0 && i + 1 < argc)   seed = std::stoull(argv[++i]);
+        else if (std::strcmp(argv[i], "--book") == 0 && i + 1 < argc)   book_name = argv[++i];
+        else if (std::strcmp(argv[i], "--runs") == 0 && i + 1 < argc)   runs = std::atoi(argv[++i]);
+        else if (std::strcmp(argv[i], "--spread") == 0 && i + 1 < argc) spread = std::stoll(argv[++i]);
+        else if (std::strcmp(argv[i], "--cancel") == 0 && i + 1 < argc) cancel_ratio = std::stod(argv[++i]);
+        else if (std::strcmp(argv[i], "--modify") == 0 && i + 1 < argc) modify_ratio = std::stod(argv[++i]);
         else if (argv[i][0] != '-')                                   path = argv[i];
         else { usage(); return 1; }
     }
@@ -97,7 +106,8 @@ int main(int argc, char** argv) {
 
     try {
         std::vector<lob::Event> events =
-            gen_n ? lob::generate_events(gen_n, seed) : lob::read_events(path);
+            gen_n ? lob::generate_events(gen_n, seed, cancel_ratio, modify_ratio, spread)
+                  : lob::read_events(path);
         std::printf("benchmarking %zu events on book=%s\n", events.size(), book_name.c_str());
         if (book_name == "naive") return bench_with<lob::NaiveBook>(events, runs);
         if (book_name == "fast")  return bench_with<lob::Book>(events, runs);

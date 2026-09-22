@@ -12,9 +12,12 @@ namespace lob {
 // resting + aggressive GTC limit orders, plus cancels/modifies of live ids.
 // Emits only Limit+GTC orders so quantity is conserved (test-friendly).
 // Ratios are probabilities per step; remainder is adds.
+// `spread` = half-width of the resting-order band around mid (ticks).
+// Larger spread = sparser, deeper book across a wider price domain.
 std::vector<Event> generate_events(std::size_t  n,
                                    std::uint64_t seed,
                                    double        cancel_ratio = 0.25,
-                                   double        modify_ratio = 0.05);
+                                   double        modify_ratio = 0.05,
+                                   Price         spread       = 100);
 
 } // namespace lob
