@@ -3,13 +3,15 @@ REM Build the WASM demo: compiles Book + generator + embind bindings
 REM into docs/lob.js + docs/lob.wasm (served by GitHub Pages).
 REM Requires emsdk at %USERPROFILE%\emsdk (emsdk install latest && emsdk activate latest).
 setlocal
-set "PATH=%USERPROFILE%\AppData\Local\Programs\Python\Python312;%PATH%"
-call "%USERPROFILE%\emsdk\emsdk_env.bat" >nul
-if errorlevel 1 (
-    echo emsdk not found at %USERPROFILE%\emsdk
+set "EMSDK=%USERPROFILE%\emsdk"
+set "EMSDK_NODE=%EMSDK%\node\24.19.0_64bit\node.exe"
+set "EMSDK_PYTHON=%EMSDK%\python\3.13.3_64bit\python.exe"
+set "EMCC=%EMSDK%\upstream\emscripten\em++.exe"
+if not exist "%EMCC%" (
+    echo emsdk not found at %EMSDK%
     exit /b 1
 )
-emcc -O2 -std=c++20 -fexceptions ^
+"%EMCC%" -O2 -std=c++20 -fexceptions ^
     -Iinclude ^
     src\book.cpp src\gen.cpp wasm\lob_wasm.cpp ^
     -lembind ^
