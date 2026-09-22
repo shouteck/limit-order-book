@@ -22,6 +22,8 @@ on a 50k-event generated tape.
 
 ## Fast-book internals (`Book`)
 
+![Architecture](docs/architecture.svg)
+
 ```
 pool_    vector<Node>          one allocation at ctor; alloc/release are
 free_    vector<uint32_t>      index-stack pops — zero hot-path malloc,
