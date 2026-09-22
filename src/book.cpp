@@ -134,10 +134,11 @@ void Book::rest(const Order& o) {
 }
 
 bool Book::fillable(const Order& in) const {
-    Quantity have = 0;
+    std::uint64_t have = 0;
     auto accumulate = [&](const auto& opp, bool in_is_buy) {
-        int i = in_is_buy ? 0 : static_cast<int>(NPRICES) - 1;
-        for (; i >= 0 && i < (int)NPRICES; in_is_buy ? ++i : --i) {
+        int i = in_is_buy ? next_nonempty_ask(0) 
+            : next_nonempty_bid((int)NPRICES - 1);
+        while (i >= 0) {
             const Price px = LO + i;
             if (in.type == OrderType::Limit &&
                 (in_is_buy ? px > in.price : px < in.price))
@@ -149,6 +150,8 @@ bool Book::fillable(const Order& in) const {
                 if (have >= in.qty) return;
                 n = n->next;
             }
+            i = in_is_buy ? next_nonempty_ask(i + 1) 
+                : next_nonempty_bid(i - 1);
         }
     };
     if (in.side == Side::Buy) accumulate(asks_lv_, true);
