@@ -4,6 +4,10 @@ A price-time-priority matching engine in modern C++, built as a portfolio
 project for quant-dev / backend roles. Exchange infrastructure, not a trading
 bot: deterministic event replay, property tests, and honest latency numbers.
 
+**[Live demo](https://shouteck.github.io/limit-order-book/)** — the engine
+compiled to WebAssembly, running a deterministic synthetic tape in the
+browser (depth chart, trade feed, in-browser benchmark).
+
 Two implementations share one observable contract:
 
 - **`NaiveBook`** — the correctness oracle: `std::map` price levels +
@@ -123,12 +127,6 @@ tools/          lob_gen — generate synthetic event files
 benchmarks/     lob_bench — per-event latency (p50/p90/p99/p99.9) + throughput
 tests/          behavioral + property + differential suites
 ```
-
-## Live demo
-
-The engine compiled to WebAssembly, running a deterministic synthetic tape
-in the browser — depth chart, trade feed, and an in-browser benchmark:
-https://shouteck.github.io/limit-order-book/
 
 Rebuild the wasm bundle (`docs/lob.js` + `docs/lob.wasm`) with
 `build_wasm.bat` (requires emsdk at `%USERPROFILE%\emsdk`).
