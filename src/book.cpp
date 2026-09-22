@@ -109,6 +109,8 @@ void Book::push_back(Level& lvl, Node* n) {
     else lvl.head = n;
     lvl.tail = n;
 
+    lvl.qty += n->o.qty;
+
 }
 
 void Book::rest(const Order& o) {
@@ -144,12 +146,8 @@ bool Book::fillable(const Order& in) const {
                 (in_is_buy ? px > in.price : px < in.price))
                 break;
             const Level& lvl = opp[i];
-            Node* n = lvl.head;
-            while (n != nullptr) {
-                have += n->o.qty;
-                if (have >= in.qty) return;
-                n = n->next;
-            }
+            have += lvl.qty;
+            if (have >= in.qty) return;
             i = in_is_buy ? next_nonempty_ask(i + 1) 
                 : next_nonempty_bid(i - 1);
         }
@@ -163,6 +161,7 @@ bool Book::cancel(OrderId id) {
     auto it = index_.find(id);
     if (it == index_.end()) return false;
     Node* n = it->second;
+    n->lvl->qty -= n->o.qty;
     unlink(*n->lvl, n);
     if (n->lvl->head == nullptr) {
         clear_bit((n->o.side == Side::Buy) ? occ_bid_ : occ_ask_, 

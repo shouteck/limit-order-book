@@ -87,6 +87,7 @@ private:
     struct Level {
         Node* head = nullptr;
         Node* tail = nullptr;
+        std::uint64_t qty = 0;
     };
 
     std::vector<Node> pool_;
@@ -124,6 +125,7 @@ private:
                 on_trade(Trade{in.id, r.id, restingPrice, n});
                 in.qty -= n;
                 r.qty -= n;
+                lvl.qty -= n;
                 if (r.qty == 0) {
                     Node* dead = lvl.head;
                     unlink(lvl, dead);
