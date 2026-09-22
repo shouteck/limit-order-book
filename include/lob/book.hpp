@@ -10,6 +10,7 @@
 #include <unordered_map>
 #include <vector>
 #include <cstdint>
+#include <bit>
 
 #include "lob/types.hpp"
 
@@ -52,6 +53,14 @@ private:
 
     static constexpr Price LO = 0;
     static constexpr std::size_t NPRICES = 1 << 16;
+
+    static constexpr std::size_t NWORDS = NPRICES / 64;
+
+    std::vector<std::uint64_t> occ_bid_;
+    std::vector<std::uint64_t> occ_ask_;
+
+    static void set_bit(std::vector<std::uint64_t>& w, int i);
+    static void clear_bit(std::vector<std::uint64_t>& w, int i);
 
     struct Level; // declare the name first
 
@@ -110,6 +119,7 @@ private:
                 }
             }
             if (lvl.head == nullptr) {
+                clear_bit(in_is_buy ? occ_ask_ : occ_bid_, i);
                 i = in_is_buy ? next_nonempty_ask(i + 1) : next_nonempty_bid(i - 1);
             }
             // aggressor is done

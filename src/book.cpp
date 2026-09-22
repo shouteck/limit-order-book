@@ -21,6 +21,16 @@ Book::Book(std::size_t capacity) {
     }
     bids_lv_.resize(NPRICES);
     asks_lv_.resize(NPRICES);
+    occ_bid_.assign(NWORDS, 0);
+    occ_ask_.assign(NWORDS, 0);
+}
+
+void Book::set_bit(std::vector<std::uint64_t>& w, int i) {
+    w[i / 64] |= (1ull << (i % 64));
+}
+
+void Book::clear_bit(std::vector<std::uint64_t>& w, int i) {
+    w[i / 64] &= ~(1ull << (i % 64));
 }
 
 Book::Level& Book::lvl_at(std::vector<Level>& lv, Price p) {
@@ -39,18 +49,34 @@ const Book::Level& Book::lvl_at(const std::vector<Level>& lv, Price p) const {
 
 }
 
-int Book::next_nonempty_bid(int i) const {
-    for (int j = i; j >= 0; --j) {
-        if (bids_lv_[j].head != nullptr) return j;
+int Book::next_nonempty_ask(int i) const {
+    if (i < 0 || i >= (int)NPRICES) return -1;
+    int w = i / 64;
+    /*
+    ~0ull            = 1111...1111   (all 64 bits on)
+    ~0ull << 2       = 1111...1100   (shift left 2, zeros fill from right)
+
+    occ_ask_[w] & mask:
+    word bits 2..63  pass through unchanged
+    word bits 0..1   forced to 0    
+    */
+    std::uint64_t word = occ_ask_[w] & (~0ull << (i % 64));
+    while (true) {
+        if (word) return w * 64 + std::countr_zero(word);
+        if (++w >= (int)NWORDS) return -1;
+        word = occ_ask_[w];
     }
-    return -1;
 }
 
-int Book::next_nonempty_ask(int i) const {
-    for (int j = i; j < (int)NPRICES; ++j) {
-        if (asks_lv_[j].head != nullptr) return j;
+int Book::next_nonempty_bid(int i) const {
+    if (i < 0 || i >= (int)NPRICES) return -1;
+    int w = i / 64;
+    std::uint64_t word = occ_bid_[w] & (~0ull >> (63 - (i % 64)));
+    while (true) {
+        if (word) return w * 64 + (63 - std::countl_zero(word));
+        if (--w < 0) return -1;
+        word = occ_bid_[w];
     }
-    return -1;
 }
 
 Book::Node* Book::alloc() {
@@ -93,8 +119,14 @@ void Book::push_back(Level& lvl, Node* n) {
 }
 
 void Book::rest(const Order& o) {
+
+    auto& lv = (o.side == Side::Buy) ? bids_lv_ : asks_lv_;
+    auto& occ = (o.side == Side::Buy) ? occ_bid_ : occ_ask_;
+
     // 1. find/create the queue's doorway (map auto-creates an empty Level)
-    Level& lvl = lvl_at(o.side == Side::Buy ? bids_lv_ : asks_lv_, o.price);
+    Level& lvl = lvl_at(lv, o.price);
+    if (lvl.head == nullptr) 
+        set_bit(occ, static_cast<int>(o.price - LO));
 
     // 2. claim a parking space
     Node* n = alloc();
@@ -136,6 +168,10 @@ bool Book::cancel(OrderId id) {
     if (it == index_.end()) return false;
     Node* n = it->second;
     unlink(*n->lvl, n);
+    if (n->lvl->head == nullptr) {
+        clear_bit((n->o.side == Side::Buy) ? occ_bid_ : occ_ask_, 
+            static_cast<int>(n->o.price - LO));
+    }
     index_.erase(it);
     release(n);
     return true;
