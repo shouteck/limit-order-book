@@ -1,5 +1,7 @@
 # lob — limit order book / matching engine
 
+[![CI](https://github.com/shouteck/limit-order-book/actions/workflows/ci.yml/badge.svg)](https://github.com/shouteck/limit-order-book/actions/workflows/ci.yml)
+
 A price-time-priority matching engine in modern C++, built as a portfolio
 project for quant-dev / backend roles. Exchange infrastructure, not a trading
 bot: deterministic event replay, property tests, and honest latency numbers.

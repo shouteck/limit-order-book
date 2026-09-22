@@ -1,4 +1,4 @@
-% THEORY.tex — LOB project: theory beside each milestone.
+% THEORY.tex — the theory behind the order book design.
 % Compile: pdflatex THEORY.tex  (or upload to Overleaf — standard packages only)
 \documentclass[11pt]{article}
 
@@ -20,7 +20,7 @@
 
 \newmdenv[backgroundcolor=buildbg,linewidth=0pt,innerleftmargin=10pt,
           innerrightmargin=10pt,innertopmargin=8pt,innerbottommargin=8pt,
-          skipabove=10pt,skipbelow=10pt]{buildbox}
+          skipabove=10pt,skipbelow=10pt]{notebox}
 
 % compact verbatim-style block for diagrams (listings handles nesting safely)
 \lstnewenvironment{diagram}
@@ -43,7 +43,7 @@
 \setlength{\parskip}{4pt}
 
 \title{\bfseries The Order Book Project:\\[4pt]
-       \large Milestones with the Theory That Explains Them}
+       \large The Theory Behind the Design}
 \author{}
 \date{}
 
@@ -52,21 +52,16 @@
 \thispagestyle{fancy}
 
 \noindent A limit order book is a piece of exchange infrastructure: the thing
-between ``an order arrives'' and ``a trade happens.'' You are building the fast
-version. Each milestone below pairs \emph{what you build} with \emph{the theory
-that explains why it's built that way} --- because in this domain, the theory
-\emph{is} the implementation.
+between ``an order arrives'' and ``a trade happens.'' This document collects
+the theory that explains why the fast implementation is built the way it is
+--- because in this domain, the theory \emph{is} the implementation. Nothing
+here depends on a specific language or codebase; every idea is about memory,
+complexity, and what hardware can answer natively.
 
 %==================================================================
-\section*{M0 --- Orientation: what a book actually is}
+\section{What a book actually is}
 
-\begin{buildbox}
-\textbf{Build:} nothing yet. Read \texttt{types.hpp} and
-\texttt{naive\_book.hpp}; run \texttt{build.bat test}, \texttt{lob\_gen},
-\texttt{lob\_replay}, \texttt{lob\_bench}. Sketch one order's lifecycle on paper.
-\end{buildbox}
-
-\subsection*{Theory: the wall of notes}
+\subsection{The wall of notes}
 
 A farmer's market has a wall where buyers pin ``I'll buy at \$1.00, need 10''
 and sellers pin ``selling at \$1.05, have 20.'' The \emph{book} is that wall,
@@ -81,204 +76,183 @@ they match. Two rules govern everything:
 \end{enumerate}
 
 ``Price-time priority'' is the entire spec. The only verbs are
-\texttt{add}/\texttt{cancel}/\texttt{modify}; the only output is \texttt{Trade}
-reports (always at the \emph{resting} order's price). A real exchange is this
-loop, millions of times per second.
+add, cancel, and modify; the only output is trade reports, always executed
+at the \emph{resting} order's price. A real exchange is this loop, millions
+of times per second.
 
-%==================================================================
-\section*{M1 --- A correct Book (slow internals are fine)}
+\subsection{Correctness is defined by behavior, not internals}
 
-\begin{buildbox}
-\textbf{Build:} implement \texttt{src/book.cpp} however is easiest ---
-copying \texttt{std::map} logic is fine. Goal: uncomment
-\texttt{BOOK\_SUITE(fast\_, lob::Book)} and go green.
-\end{buildbox}
-
-\subsection*{Theory: correctness is defined by behavior, not internals}
-
-Your \texttt{Book} and \texttt{NaiveBook} share one contract. The tests don't
-care which they run --- that's the point. Two consequences worth internalizing:
+Two implementations of the same observable contract are interchangeable by
+definition. That gives two consequences worth internalizing:
 
 \begin{itemize}
   \item \textbf{State machine view.} The book is a deterministic machine:
-        events in, state transitions, trades out. Structurally identical to
-        your emulator: \texttt{cycle()} became ``apply next event.''
-  \item \textbf{Differential testing.} Same tape through two implementations
-        must yield identical trades. ``Is it correct?'' becomes ``does it
-        match the reference?'' --- falsifiable forever, for free.
+        events in, state transitions, trades out.
+  \item \textbf{Differential testing.} The same tape through two
+        implementations must yield identical trades. ``Is it correct?''
+        becomes ``does it match the reference?'' --- falsifiable forever,
+        for free.
 \end{itemize}
 
 Get it right first; every optimization afterward is continuously verified
 against a known-good oracle.
 
 %==================================================================
-\section*{M2 --- The O(1) redesign (the core work)}
+\section{The O(1) redesign}
 
-\begin{buildbox}
-\textbf{Build:} replace the internals --- order pool/arena, intrusive FIFO
-per level, flat level array indexed by price, bitmap for occupancy, flat hash
-map (or dense id index) for cancels. Re-run tests after \emph{each} change.
-\end{buildbox}
+\subsection{Memory is the cost, not compute}
 
-\subsection*{Theory 1: memory is the cost, not compute}
-
-The CPU is ~100x faster at arithmetic than at fetching from DRAM:
+The CPU is roughly 100x faster at arithmetic than at fetching from DRAM:
 
 \begin{diagram}
 executing one instruction on data in a register:   ~0.3 ns
 L1 hit ~1 ns | L2 ~12 cy | L3 ~45 cy | DRAM ~200-300 cy (~100 ns)
 \end{diagram}
 
-The gap exists physically (DRAM is a separate chip, capacitors, distance) and
-historically (CPU speed grew ~50\%/yr, DRAM latency ~7\%/yr --- the ``memory
-wall''; caches are the workaround). \textbf{1 cache miss $\approx$ 300
-instructions} --- so op-count alone is the wrong cost model.
+The gap exists physically (DRAM is a separate chip, capacitors, distance)
+and historically (CPU speed grew ~50\%/yr while DRAM latency improved
+~7\%/yr --- the ``memory wall''; caches are the workaround). \textbf{One
+cache miss $\approx$ 300 instructions} --- so op-count alone is the wrong
+cost model.
 
-\subsection*{Theory 2: dependent vs.\ independent misses}
+\subsection{Dependent vs.\ independent misses}
 
-Misses only serialize if they're \emph{dependent} --- when the next address is
-hidden inside data you haven't fetched yet:
+Misses only serialize if they're \emph{dependent} --- when the next address
+is hidden inside data you haven't fetched yet:
 
 \begin{diagram}
 independent (array):  known addresses -> fire all -> waits OVERLAP
 dependent  (tree):    node -> next addr inside it -> serial, ~100ns each
 \end{diagram}
 
-The CPU keeps $\sim$10+ fetches in flight, but only for computable addresses.
-Pointer chasing forbids overlap; the prefetcher can't help either.
-\textbf{Case-2 structures (tree, list) are the worst case:} maximum dependent
-misses, zero parallelism.
+The CPU keeps ten or more fetches in flight, but only for computable
+addresses. Pointer chasing forbids overlap; the prefetcher can't help
+either. \textbf{Tree and linked structures are the worst case:} maximum
+dependent misses, zero parallelism.
 
-\subsection*{Theory 3: the address formula and its three conditions}
+\subsection{The address formula and its three conditions}
 
 \begin{diagram}
 f(i) = base + i * size     <- works only if:
   1. fixed-size elements   (constant stride; variable size => scan)
-  2. stored INLINE         (vector<T*> is contiguous but still chases;
-                            the object must BE at the address, not pointed)
+  2. stored INLINE         (an array of pointers is contiguous but still
+                            chases; the object must BE at the address)
   3. back-to-back          (contiguous; else no formula exists)
 \end{diagram}
 
-Bonus: cache fetches in \textbf{64-byte lines} --- contiguity means each miss
-carries ~16 useful elements, not 1. Overlap fixes \emph{latency}; lines fix
-\emph{fetch count}. You need both.
+Bonus: cache fetches in \textbf{64-byte lines} --- contiguity means each
+miss carries many useful elements, not one. Overlap fixes \emph{latency};
+lines fix \emph{fetch count}. You need both.
 
-\subsection*{Theory 4: escaping the comparison model}
+\subsection{Escaping the comparison model}
 
-$\Omega(\log N)$ ordered access is a theorem \emph{only} for comparison-based
-structures (``is $a < b$?'' gives 1 bit per step). Prices are bounded integers
---- an integer in a known range isn't just orderable, \emph{it's an address}:
+$\Omega(\log N)$ ordered access is a theorem \emph{only} for
+comparison-based structures (``is $a < b$?'' yields one bit per step).
+Prices are bounded integers --- an integer in a known range isn't just
+orderable, \emph{it's an address}: subtract the base and index directly.
 
-\begin{diagram}
-levels[price - LO]   <- the whole "search" is one subtraction
-\end{diagram}
+Same escape as radix sort beating $\Omega(N \log N)$. The honest limit: it
+costs memory proportional to the universe, and it only works because prices
+are bounded and dense --- unbounded keys put you back in the comparison
+model. The tree's logarithmic access is \emph{unconditional}; that
+generality is what the log factor buys.
 
-Same escape as radix sort beating $\Omega(N\log N)$. Honest limit: costs
-$O(U)$ memory for the universe, and only works because prices are bounded and
-dense --- unbounded keys put you back in the comparison model. The tree's
-$O(\log k)$ is \emph{unconditional}; that generality is what the log buys.
+\subsection{Bitmaps and bitscan: asking the hardware}
 
-\subsection*{Theory 5: bitmap + bitscan for ``best price''}
-
-The level array is mostly empty --- need ``which prices are live'' without
-scanning. One bit per price; finding best ask = \texttt{tzcnt} (count trailing
-zeros) --- a single CPU \emph{instruction}, not a loop: all 64 bits exist as
-voltages simultaneously; a priority-encoder circuit answers in ~1 cycle.
+The level array is mostly empty --- we need ``which prices are live''
+without scanning. One bit per price; finding the best ask is a single
+count-trailing-zeros \emph{instruction}, not a loop: all 64 bits exist as
+voltages simultaneously and a priority-encoder circuit answers in ~1 cycle.
 
 \begin{diagram}
-prices:  4900 4901 4902 4903
+prices:  4900 4901 4903 4904
 bitmap:    0    0    1    1       lowest set bit = best ask
                   ^
 one word covers 64 prices; 10k prices = ~1.2KB = permanently L1-resident
-bids use lzcnt (highest bit); "next nonempty level" = same instruction
+bids scan the other direction (highest bit); "next nonempty" is the
+same instruction applied word by word
 \end{diagram}
 
 Pattern worth naming: \emph{encode the problem as a question the hardware
-answers natively} (chess bitboards, OS scheduler runqueues). Worst case is
-universe-proportional ($O(U/64)$ word scans) --- fixable with a hierarchical
-bitmap (bits over words), the practical cousin of vEB's $O(\log\log U)$.
+answers natively} (chess bitboards, OS scheduler runqueues). The worst case
+is universe-proportional word scans --- fixable with a hierarchical bitmap
+(bits over words), the practical cousin of van Emde Boas layouts.
 
-\subsection*{Theory 6: mutation is where trees bleed}
+\subsection{Mutation is where trees bleed}
 
-Lookups were the warmup; a book mostly \emph{writes}. A tree insert =
-\texttt{malloc} + descent + rebalance (writes to ancestors you didn't ask
-about). And \texttt{malloc} is a global, lock-protected, \textbf{unbounded}
-call --- 50ns usually, microseconds when the heap is in a bad state:
+Lookups were the warmup; a book mostly \emph{writes}. A tree insert costs a
+heap allocation plus a descent plus a rebalance --- writes to ancestors you
+didn't ask about. And heap allocation is a global, lock-protected,
+\textbf{unbounded} call: tens of nanoseconds usually, microseconds when the
+heap is in a bad state. Amortized averages don't matter when the metric is
+the tail. A flat design's whole mutation path is a few bounded writes to
+computable addresses --- ``bounded tail'' means \emph{there is no code path
+that can take milliseconds}.
 
-\begin{diagram}
-naive bench:  p50 = 300ns   p99.9 = 5600ns   max ~2ms
-              ^--- that spread IS allocator/rebalance jitter
-\end{diagram}
-
-Amortized averages don't matter when the metric is the tail. The flat
-version's whole mutation path is a few bounded writes to computable addresses
---- ``bounded tail'' means \emph{there is no code path that can take 2ms}.
-
-\subsection*{Theory 7: the pool, and the pardoned linked list}
+\subsection{The pool, and the pardoned linked list}
 
 \begin{itemize}
-  \item \textbf{Pool/arena} for orders: one big array, alloc = bump pointer.
-        No \texttt{new}/\texttt{delete} in the hot path; stable addresses mean
-        \texttt{OrderId -> Order*} stays valid forever.
-  \item \textbf{Intrusive FIFO} per level: orders link to each other; cancel
-        = unlink two pointers, $O(1)$, no search. It's a linked list ---
-        case-2 memory --- but you only ever touch head/tail, so the chase is
-        \emph{bounded at one hop}. The rule isn't ``never chase pointers,''
-        it's ``never chase unboundedly.''
-  \item \textbf{Identity lookup} (\texttt{cancel(47)}): flat hash map ---
-        open addressing = probing contiguous slots (case-1), vs
-        \texttt{unordered\_map}'s chained case-2 buckets. If ids are dense,
-        direct indexing beats hashing entirely --- the concept-4 escape
-        applied a second time.
+  \item \textbf{Pool/arena for orders}: one big array, allocation is a
+        stack pop. No per-order heap traffic in the hot path; stable
+        addresses mean identity-to-node pointers stay valid forever.
+  \item \textbf{Intrusive FIFO per level}: orders link to each other;
+        cancel is unlinking two pointers, constant time, no search. It is
+        still a linked list --- dependent-chase memory --- but you only
+        ever touch head and tail, so the chase is \emph{bounded at one
+        hop}. The rule isn't ``never chase pointers,'' it's ``never chase
+        unboundedly.''
+  \item \textbf{Identity lookup} (``cancel order 47''): a flat hash map
+        probes contiguous slots --- independent misses --- versus chained
+        buckets that scatter. If ids are dense, direct indexing beats
+        hashing entirely: the bounded-integer escape applied a second time.
 \end{itemize}
 
-\subsection*{Theory 8: the composite is the real structure}
+\subsection{The composite is the real structure}
 
-Two indexes over the same objects (by price, by id) must stay in sync on every
-mutation --- a fill that removes an order from its level but leaves it in the
-id map creates a phantom. Textbooks give you structures; \emph{keeping indexes
-consistent under mutation is the actual engineering.}
-
-%==================================================================
-\section*{M3 --- Measure like a professional}
-
-\begin{buildbox}
-\textbf{Build:} \texttt{lob\_bench --book fast} vs \texttt{--book naive}.
-Vary seeds, event mixes, book depth. Record percentile tables.
-\end{buildbox}
-
-\subsection*{Theory: percentiles are the truth, the mean is a summary}
-
-Tail latency is the product: p99.9 exposes allocator slow paths, rehashes,
-rebalances. A fair benchmark controls warmup, allocator state, and seed ---
-and ``my fast version was slower at X, here's why'' earns more credibility
-than any headline number. You are measuring your code \emph{and} your
-harness; know which is which.
+Two indexes over the same objects --- one by price, one by id --- must stay
+in sync on every mutation. A fill that removes an order from its level but
+leaves it in the id index creates a phantom; the reverse creates invisible
+liquidity. Textbooks give you structures; \emph{keeping indexes consistent
+under mutation is the actual engineering.}
 
 %==================================================================
-\section*{M4 --- The writeup is the demo}
+\section{Measuring like a professional}
 
-\begin{buildbox}
-\textbf{Build:} benchmark table (naive vs fast, per-event, p50/p99/p99.9) +
-one paragraph per design decision: chosen, rejected, surprised-by.
-\end{buildbox}
+\subsection{Percentiles are the truth; the mean is a summary}
 
-\subsection*{Theory: what the numbers can claim}
+Tail latency is the product. The 99.9th percentile exposes allocator slow
+paths, rehashes, and rebalances that a mean would average away. A fair
+benchmark controls warmup, allocator state, and seed --- and ``my fast
+version was slower at X, here's why'' earns more credibility than any
+headline number. You are measuring your code \emph{and} your harness; know
+which is which.
 
-Matching $k$ levels costs $O(k)$ in fills --- inherent work, correctly paid.
-What you removed is per-operation overhead and unbounded variance. The
-defensible claim: \emph{``I exploited bounded dense integer keys to leave the
-comparison model, and contiguous inline layout to leave pointer chasing ---
-here's what my design still can't do.''}
+\subsection{What the numbers can claim}
+
+Matching $k$ levels costs $O(k)$ in fills --- inherent work, correctly
+paid. What a fast book removes is per-operation overhead and unbounded
+variance. The defensible claim is: \emph{``I exploited bounded dense
+integer keys to leave the comparison model, and contiguous inline layout to
+leave pointer chasing --- and here is what my design still cannot do.''}
 
 %==================================================================
-\section*{Stretch --- if time remains}
+\section{Summary: the whole design in one breath}
 
-\begin{itemize}
-  \item NASDAQ ITCH-5.0 replay: parse real tape into your Event stream.
-  \item Hierarchical bitmap for sparse universes.
-  \item Depth-chart visualization; modify semantics variants
-        (qty-decrease keeps priority on some venues).
-\end{itemize}
+Every choice in the fast book is the same two moves applied to different
+data. \textbf{Move one}: turn keys into addresses --- prices index a flat
+array, order ids index a hash map or dense table, occupancy lives in a
+bitmap the CPU can scan in one instruction. \textbf{Move two}: make every
+miss bounded and independent --- pool allocation instead of the heap,
+intrusive lists bounded at one hop, sequential bitmap words the prefetcher
+can chase for you.
+
+The honest closing note is that none of this wins unconditionally. A small,
+dense book keeps a balanced tree entirely cache-resident, and its best-node
+lookup is genuinely constant time. The fast design's advantage is
+\emph{scale and predictability}: as the book deepens and the price domain
+widens, its costs stay flat while the tree's grow logarithmic and cold ---
+and its worst case is a bounded scan rather than an allocator's bad day.
+Knowing \emph{when} a structure wins, and being able to say why, is the
+skill the structure was built to teach.
 
 \end{document}
