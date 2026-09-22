@@ -124,6 +124,15 @@ benchmarks/     lob_bench — per-event latency (p50/p90/p99/p99.9) + throughput
 tests/          behavioral + property + differential suites
 ```
 
+## Live demo
+
+The engine compiled to WebAssembly, running a deterministic synthetic tape
+in the browser — depth chart, trade feed, and an in-browser benchmark:
+https://shouteck.github.io/limit-order-book/
+
+Rebuild the wasm bundle (`docs/lob.js` + `docs/lob.wasm`) with
+`build_wasm.bat` (requires emsdk at `%USERPROFILE%\emsdk`).
+
 ## Docs
 
 - `GUIDE.md` / `GUIDE.pdf` — roadmap, syllabus, commands (regenerate: `python tools/make_guide.py`)
