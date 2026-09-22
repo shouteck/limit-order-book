@@ -43,6 +43,8 @@ public:
     std::optional<Price> best_ask() const;
     std::size_t          order_count() const;
     std::uint64_t        resting_qty(Side side) const;
+    // Top `max` occupied levels on one side, best price first.
+    std::vector<LevelDepth> depth(Side side, std::size_t max) const;
 
 private:
     template <typename OnTrade>

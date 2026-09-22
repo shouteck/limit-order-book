@@ -209,4 +209,22 @@ std::uint64_t Book::resting_qty(Side side) const {
     return total;
 }
 
+std::vector<LevelDepth> Book::depth(Side side, std::size_t max) const {
+    std::vector<LevelDepth> out;
+    const std::vector<Level>& lv =
+        (side == Side::Buy) ? bids_lv_ : asks_lv_;
+    int i = (side == Side::Buy)
+                ? next_nonempty_bid(static_cast<int>(NPRICES) - 1)
+                : next_nonempty_ask(0);
+    while (i >= 0 && out.size() < max) {
+        Quantity q = 0;
+        for (Node* n = lv[i].head; n; n = n->next)
+            q += n->o.qty;
+        out.push_back(LevelDepth{LO + i, q});
+        i = (side == Side::Buy) ? next_nonempty_bid(i - 1)
+                                : next_nonempty_ask(i + 1);
+    }
+    return out;
+}
+
 } // namespace lob

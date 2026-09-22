@@ -30,6 +30,12 @@ struct Trade {
     Quantity qty          = 0;
 };
 
+// Read-model snapshot of one occupied price level (for depth queries).
+struct LevelDepth {
+    Price    price = 0;
+    Quantity qty   = 0;
+};
+
 enum class EventKind : std::uint8_t { Add, Cancel, Modify };
 
 // A single instruction to the book. For Add, `order` is fully populated.
